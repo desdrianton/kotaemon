@@ -460,11 +460,7 @@ class ChatPage(BasePage):
                     self.chat_control.conversation_rn,
                     # file selector from the first index
                     self._indices_input[0],
-
-                    # === Prosigmaka ===
-                    # Hide "GraphRAG Collection" & "LightRAG Collection" accordion
                     self._indices_input[1],
-
                     self._command_state,
                 ],
                 concurrency_limit=20,
