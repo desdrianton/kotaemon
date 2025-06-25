@@ -244,13 +244,15 @@ class ChatPage(BasePage):
 
 
                     # === Prosigmaka ===
+                    visible = True
                     if index_name in ["GraphRAG Collection", "LightRAG Collection"]:
-                        continue
+                        visible = False
 
                     with gr.Accordion(
                         label=index_name,
                         open=is_first_index,
                         elem_id=f"index-{index_id}",
+                        visible=visible,
                     ):
                         index_ui.render()
                         gr_index = index_ui.as_gradio_component()
@@ -461,7 +463,7 @@ class ChatPage(BasePage):
 
                     # === Prosigmaka ===
                     # Hide "GraphRAG Collection" & "LightRAG Collection" accordion
-                    # self._indices_input[1],
+                    self._indices_input[1],
 
                     self._command_state,
                 ],
