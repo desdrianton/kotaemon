@@ -222,6 +222,9 @@ class ChatPage(BasePage):
             self.state_plot_panel = gr.State(None)
             self.first_selector_choices = gr.State(None)
 
+            # ==========================================================================================================
+            # Conversation Panel
+            # ==========================================================================================================
             with gr.Column(scale=1, elem_id="conv-settings-panel") as self.conv_column:
                 self.chat_control = ConversationControl(self._app)
 
@@ -238,6 +241,11 @@ class ChatPage(BasePage):
 
                     if KH_DEMO_MODE and is_first_index:
                         index_name = "Select from Paper Collection"
+
+
+                    # === Prosigmaka ===
+                    if index_name == "GraphRAG Collection" or "LightRAG Collection":
+                        continue
 
                     with gr.Accordion(
                         label=index_name,
@@ -307,6 +315,9 @@ class ChatPage(BasePage):
 
                     self.hint_page = HintPage(self._app)
 
+            # ==========================================================================================================
+            # Chat Panel
+            # ==========================================================================================================
             with gr.Column(scale=6, elem_id="chat-area"):
                 if KH_DEMO_MODE:
                     self.paper_list = PaperListPage(self._app)
@@ -386,6 +397,9 @@ class ChatPage(BasePage):
                                 value=False,
                             )
 
+            # ==========================================================================================================
+            # Info Panel
+            # ==========================================================================================================
             with gr.Column(
                 scale=INFO_PANEL_SCALES[False], elem_id="chat-info-panel"
             ) as self.info_column:
@@ -443,8 +457,12 @@ class ChatPage(BasePage):
                     self.chat_control.conversation,
                     self.chat_control.conversation_rn,
                     # file selector from the first index
-                    self._indices_input[0],
-                    self._indices_input[1],
+
+                    # === Prosigmaka ===
+                    # Hide "GraphRAG Collection" accordion
+                    # self._indices_input[0],
+                    # Hide "LightRAG Collection" accordion
+                    # self._indices_input[1],
                     self._command_state,
                 ],
                 concurrency_limit=20,
