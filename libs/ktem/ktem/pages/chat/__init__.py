@@ -244,7 +244,7 @@ class ChatPage(BasePage):
 
 
                     # === Prosigmaka ===
-                    if index_name == "GraphRAG Collection" or "LightRAG Collection":
+                    if index_name in ["GraphRAG Collection", "LightRAG Collection"]:
                         continue
 
                     with gr.Accordion(
@@ -457,12 +457,12 @@ class ChatPage(BasePage):
                     self.chat_control.conversation,
                     self.chat_control.conversation_rn,
                     # file selector from the first index
+                    self._indices_input[0],
 
                     # === Prosigmaka ===
-                    # Hide "GraphRAG Collection" accordion
-                    # self._indices_input[0],
-                    # Hide "LightRAG Collection" accordion
+                    # Hide "GraphRAG Collection" & "LightRAG Collection" accordion
                     # self._indices_input[1],
+
                     self._command_state,
                 ],
                 concurrency_limit=20,
