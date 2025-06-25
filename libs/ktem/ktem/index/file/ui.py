@@ -1609,17 +1609,18 @@ class FileSelector(BasePage):
 
     def default(self):
         if self._app.f_user_management:
-            return "disabled", [], -1
-        return "disabled", [], 1
+            return "disabled", [], -1, None
+        return "disabled", [], 1, None
 
     def on_building_ui(self):
-        default_mode, default_selector, user_id = self.default()
+        default_mode, default_selector, user_id, default_date = self.default()
 
         self.mode = gr.Radio(
             value=default_mode,
             choices=[
                 ("Search All", "all"),
                 ("Search In File(s)", "select"),
+                ("Search By Date", "date"),
             ],
             container=False,
         )
@@ -1632,6 +1633,11 @@ class FileSelector(BasePage):
             interactive=True,
             visible=False,
         )
+        self.date_picker = gr.DateTime(
+            label="Document Date",
+            value=default_date,
+            visible=False,
+        )
         self.selector_user_id = gr.State(value=user_id)
         self.selector_choices = gr.JSON(
             value=[],
@@ -1640,9 +1646,13 @@ class FileSelector(BasePage):
 
     def on_register_events(self):
         self.mode.change(
-            fn=lambda mode, user_id: (gr.update(visible=mode == "select"), user_id),
+            fn=lambda mode, user_id: (
+                gr.update(visible=mode == "select"), 
+                gr.update(visible=mode == "date"),
+                user_id
+            ),
             inputs=[self.mode, self._app.user_id],
-            outputs=[self.selector, self.selector_user_id],
+            outputs=[self.selector, self.date_picker, self.selector_user_id],
         )
         # attach special event for the first index
         if self._index.id == 1:
@@ -1654,10 +1664,10 @@ class FileSelector(BasePage):
             )
 
     def as_gradio_component(self):
-        return [self.mode, self.selector, self.selector_user_id]
+        return [self.mode, self.selector, self.date_picker, self.selector_user_id]
 
     def get_selected_ids(self, components):
-        mode, selected, user_id = components[0], components[1], components[2]
+        mode, selected, date_value, user_id = components[0], components[1], components[2], components[3]
         if user_id is None:
             return []
 
@@ -1673,6 +1683,25 @@ class FileSelector(BasePage):
                 statement = statement.where(
                     self._index._resources["Source"].user == user_id
                 )
+
+            # Filter by date if mode is "date" and date_value is provided
+            if mode == "date" and date_value:
+                try:
+                    # Convert datetime object to string in format YYYY-MM-DD
+                    if isinstance(date_value, str):
+                        # Handle case where date_value is still a string (for backward compatibility)
+                        date_str = date_value.strip()
+                    else:
+                        # Handle case where date_value is a datetime object from DatePicker
+                        date_str = date_value.strftime("%Y-%m-%d")
+
+                    # Filter documents where date_created starts with the specified date
+                    statement = statement.where(
+                        self._index._resources["Source"].date_created.cast(String).like(f"{date_str}%")
+                    )
+                except Exception as e:
+                    print(f"Error filtering by date: {e}")
+
             results = session.execute(statement).all()
             for (id,) in results:
                 file_ids.append(id)
