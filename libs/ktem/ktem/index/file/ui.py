@@ -7,6 +7,7 @@ import zipfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Generator
+import datetime
 
 import gradio as gr
 import pandas as pd
@@ -1609,11 +1610,11 @@ class FileSelector(BasePage):
 
     def default(self):
         if self._app.f_user_management:
-            return "disabled", [], -1, None
-        return "disabled", [], 1, None
+            return "disabled", [], -1, None, None
+        return "disabled", [], 1, None, None
 
     def on_building_ui(self):
-        default_mode, default_selector, user_id, default_date = self.default()
+        default_mode, default_selector, user_id, start_date, end_date = self.default()
 
         self.mode = gr.Radio(
             value=default_mode,
@@ -1633,11 +1634,24 @@ class FileSelector(BasePage):
             interactive=True,
             visible=False,
         )
-        self.date_picker = gr.DateTime(
-            label="Document Date",
-            value=default_date,
+        self.start_date_picker = gr.DateTime(
+            label="Start Date",
+            value=start_date,
+            visible=False,
+            include_time=False
+        )
+        self.end_date_picker = gr.DateTime(
+            label="End Date",
+            value=end_date,
+            visible=False,
+            include_time=False
+        )
+        self.apply_date_filter_button = gr.Button(
+            "Apply Date Filter",
             visible=False,
         )
+        self.filtered_file_list = gr.Markdown(visible=False)
+        self.filtered_file_ids = gr.State(value=[])
         self.selector_user_id = gr.State(value=user_id)
         self.selector_choices = gr.JSON(
             value=[],
@@ -1649,10 +1663,29 @@ class FileSelector(BasePage):
             fn=lambda mode, user_id: (
                 gr.update(visible=mode == "select"), 
                 gr.update(visible=mode == "date"),
+                gr.update(visible=mode == "date"),
+                gr.update(visible=mode == "date"),
+                gr.update(visible=mode == "date"),
                 user_id
             ),
             inputs=[self.mode, self._app.user_id],
-            outputs=[self.selector, self.date_picker, self.selector_user_id],
+            outputs=[
+                self.selector,
+                self.start_date_picker,
+                self.end_date_picker,
+                self.apply_date_filter_button,
+                self.filtered_file_list,
+                self.selector_user_id
+            ],
+        )
+        self.apply_date_filter_button.click(
+            fn=self.get_filtered_files_and_list,
+            inputs=[
+                self.start_date_picker,
+                self.end_date_picker,
+                self.selector_user_id
+            ],
+            outputs=[self.filtered_file_ids, self.filtered_file_list],
         )
         # attach special event for the first index
         if self._index.id == 1:
@@ -1664,10 +1697,10 @@ class FileSelector(BasePage):
             )
 
     def as_gradio_component(self):
-        return [self.mode, self.selector, self.date_picker, self.selector_user_id]
+        return [self.mode, self.selector, self.start_date_picker, self.end_date_picker, self.selector_user_id]
 
     def get_selected_ids(self, components):
-        mode, selected, date_value, user_id = components[0], components[1], components[2], components[3]
+        mode, selected, start_date, end_date, user_id = components
         if user_id is None:
             return []
 
@@ -1684,23 +1717,14 @@ class FileSelector(BasePage):
                     self._index._resources["Source"].user == user_id
                 )
 
-            # Filter by date if mode is "date" and date_value is provided
-            if mode == "date" and date_value:
-                try:
-                    # Convert datetime object to string in format YYYY-MM-DD
-                    if isinstance(date_value, str):
-                        # Handle case where date_value is still a string (for backward compatibility)
-                        date_str = date_value.strip()
-                    else:
-                        # Handle case where date_value is a datetime object from DatePicker
-                        date_str = date_value.strftime("%Y-%m-%d")
-
-                    # Filter documents where date_created starts with the specified date
-                    statement = statement.where(
-                        self._index._resources["Source"].date_created.cast(String).like(f"{date_str}%")
-                    )
-                except Exception as e:
-                    print(f"Error filtering by date: {e}")
+            # Filter start_date and end_date
+            if mode == "date":
+                if start_date:
+                    statement = statement.where(self._index._resources["Source"].date_created >= start_date)
+                if end_date:
+                    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
+                        end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+                    statement = statement.where(self._index._resources["Source"].date_created <= end_date)
 
             results = session.execute(statement).all()
             for (id,) in results:
@@ -1751,6 +1775,36 @@ class FileSelector(BasePage):
             ]
 
         return gr.update(value=selected_files, choices=options), options
+
+    def format_file_list(self, file_ids):
+        if not file_ids:
+            return "No files found."
+        Source = self._index._resources["Source"]
+        with Session(engine) as session:
+            files = session.query(Source).filter(Source.id.in_(file_ids)).all()
+            return "\n".join(f"- {file.name}" for file in files)
+        
+    def get_filtered_files_and_list(self, start, end, user_id):
+        # Convert float timestamps to datetime
+        if isinstance(start, (float, int)):
+            start = datetime.datetime.fromtimestamp(start)
+        if isinstance(end, (float, int)):
+            end = datetime.datetime.fromtimestamp(end)
+
+        # Convert date to datetime for filtering
+        if isinstance(start, datetime.date) and not isinstance(start, datetime.datetime):
+            start = datetime.datetime.combine(start, datetime.time.min)
+        # Always force end time to 23:59:59 if time is 00:00:00
+        if isinstance(end, datetime.datetime) and end.time() == datetime.time(0, 0, 0):
+            end = end.replace(hour=23, minute=59, second=59)
+        elif isinstance(end, datetime.date) and not isinstance(end, datetime.datetime):
+            end = datetime.datetime.combine(end, datetime.time(23, 59, 59))
+
+        print("Filtering with:", start, end, user_id)
+        file_ids = self.get_selected_ids(["date", [], start, end, user_id])
+        print("Filtered file IDs:", file_ids)
+        file_list_str = self.format_file_list(file_ids)
+        return file_ids, file_list_str
 
     def _on_app_created(self):
         self._app.app.load(
