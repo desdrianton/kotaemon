@@ -1610,8 +1610,8 @@ class FileSelector(BasePage):
 
     def default(self):
         if self._app.f_user_management:
-            return "disabled", [], -1, None, None
-        return "disabled", [], 1, None, None
+            return "all", [], -1, None, None
+        return "all", [], 1, None, None
 
     def on_building_ui(self):
         default_mode, default_selector, user_id, start_date, end_date = self.default()
@@ -1619,8 +1619,6 @@ class FileSelector(BasePage):
         self.mode = gr.Radio(
             value=default_mode,
             choices=[
-                ("Search All", "all"),
-                ("Search In File(s)", "select"),
                 ("Search By Date", "date"),
             ],
             container=False,
@@ -1710,35 +1708,11 @@ class FileSelector(BasePage):
         mode, selected, start_date, end_date, user_id, filtered_file_ids = components
         if user_id is None:
             return []
+        
+        # Use filtered_file_ids if provided
+        if filtered_file_ids is not None:
+            return filtered_file_ids
 
-        if mode == "disabled":
-            return []
-        elif mode == "select":
-            return selected
-        elif mode == "date":
-            # Use filtered_file_ids if provided
-            if filtered_file_ids is not None:
-                return filtered_file_ids
-            # Otherwise, fall back to querying by date (for Apply Date Filter)
-            file_ids = []
-            with Session(engine) as session:
-                statement = select(self._index._resources["Source"].id)
-                if self._index.config.get("private", False):
-                    statement = statement.where(
-                        self._index._resources["Source"].user == user_id
-                    )
-                if start_date:
-                    statement = statement.where(self._index._resources["Source"].date_created >= start_date)
-                if end_date:
-                    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
-                        end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
-                    statement = statement.where(self._index._resources["Source"].date_created <= end_date)
-                results = session.execute(statement).all()
-                for (id,) in results:
-                    file_ids.append(id)
-            return file_ids
-
-        # fallback: all files
         file_ids = []
         with Session(engine) as session:
             statement = select(self._index._resources["Source"].id)
@@ -1746,9 +1720,21 @@ class FileSelector(BasePage):
                 statement = statement.where(
                     self._index._resources["Source"].user == user_id
                 )
+            
+            #Querying by date (for Apply Date Filter)
+            if mode == "date":
+                if start_date:
+                    statement = statement.where(self._index._resources["Source"].date_created >= start_date)
+                if end_date:
+                    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
+                        end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+                    statement = statement.where(self._index._resources["Source"].date_created <= end_date)
+
             results = session.execute(statement).all()
+
             for (id,) in results:
                 file_ids.append(id)
+
         return file_ids
 
     def load_files(self, selected_files, user_id):
@@ -1840,6 +1826,12 @@ class FileSelector(BasePage):
                 "show_progress": "hidden",
             },
         )
+
+        def set_all_files_on_load(user_id):
+            file_ids = self.get_selected_ids(["all", [], None, None, user_id, None])
+            file_list_str = self.format_file_list(file_ids)
+            return file_ids, file_list_str
+
         if self._app.f_user_management:
             for event_name in ["onSignIn", "onSignOut"]:
                 self._app.subscribe_event(
@@ -1848,6 +1840,26 @@ class FileSelector(BasePage):
                         "fn": self.load_files,
                         "inputs": [self.selector, self._app.user_id],
                         "outputs": [self.selector, self.selector_choices],
+                        "show_progress": "hidden",
+                    },
+                )
+                # Update filtered_file_ids and filtered_file_list on sign in
+                self._app.subscribe_event(
+                    name="onSignIn",
+                    definition={
+                        "fn": set_all_files_on_load,
+                        "inputs": [self._app.user_id],
+                        "outputs": [self.filtered_file_ids, self.filtered_file_list],
+                        "show_progress": "hidden",
+                    },
+                )
+                # Clear filtered_file_ids and filtered_file_list on sign out
+                self._app.subscribe_event(
+                    name="onSignOut",
+                    definition={
+                        "fn": lambda user_id: ([], "No files found."),
+                        "inputs": [self._app.user_id],
+                        "outputs": [self.filtered_file_ids, self.filtered_file_list],
                         "show_progress": "hidden",
                     },
                 )

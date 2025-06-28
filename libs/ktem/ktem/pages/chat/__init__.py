@@ -896,7 +896,6 @@ class ChatPage(BasePage):
         conv_name,
         first_selector_choices,
         request: gr.Request,
-        *selector_components,  # Accepts all extra selector outputs
     ):
         """Submit a message to the chatbot"""
         if KH_DEMO_MODE:
@@ -914,11 +913,6 @@ class ChatPage(BasePage):
             item[0]: item[1] for item in first_selector_choices
         }
 
-        # Unpack selector components (mode, selected, start_date, end_date, user_id, filtered_file_ids)
-        mode, selected, start_date, end_date, sel_user_id, filtered_file_ids = (None, [], None, None, None, [])
-        if selector_components and len(selector_components) >= 6:
-            mode, selected, start_date, end_date, sel_user_id, filtered_file_ids = selector_components[:6]
-
         # get all file names with pattern @"filename" in input_str
         file_names, chat_input_text = get_file_names_regex(chat_input_text)
 
@@ -928,21 +922,16 @@ class ChatPage(BasePage):
 
         # get all urls in input_str
         urls, chat_input_text = get_urls(chat_input_text)
-
-        # Use filtered_file_ids if mode is 'date'
-        if mode == "date":
-            file_ids = filtered_file_ids or []
-        elif mode == "select":
-            file_ids = selected or []
-        elif urls and self.first_indexing_url_fn:
-            print("Detected URLs", urls)
-            file_ids = self.first_indexing_url_fn(
-                "\n".join(urls),
-                True,
-                settings,
-                user_id,
-                request=None,
-            )
+ 
+        if urls and self.first_indexing_url_fn:
+                print("Detected URLs", urls)
+                file_ids = self.first_indexing_url_fn(
+                    "\n".join(urls),
+                    True,
+                    settings,
+                    user_id,
+                    request=None,
+                )
         elif file_names:
             for file_name in file_names:
                 file_id = first_selector_choices_map.get(file_name)
@@ -963,7 +952,7 @@ class ChatPage(BasePage):
 
         if file_ids:
             selector_output = [
-                mode if mode else "select",
+                "select",
                 gr.update(value=file_ids, choices=first_selector_choices),
             ]
         else:
