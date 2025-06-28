@@ -1697,10 +1697,17 @@ class FileSelector(BasePage):
             )
 
     def as_gradio_component(self):
-        return [self.mode, self.selector, self.start_date_picker, self.end_date_picker, self.selector_user_id]
+        return [
+            self.mode, 
+            self.selector, 
+            self.start_date_picker, 
+            self.end_date_picker, 
+            self.selector_user_id,
+            self.filtered_file_ids
+        ]
 
     def get_selected_ids(self, components):
-        mode, selected, start_date, end_date, user_id = components
+        mode, selected, start_date, end_date, user_id, filtered_file_ids = components
         if user_id is None:
             return []
 
@@ -1708,7 +1715,30 @@ class FileSelector(BasePage):
             return []
         elif mode == "select":
             return selected
+        elif mode == "date":
+            # Use filtered_file_ids if provided
+            if filtered_file_ids is not None:
+                return filtered_file_ids
+            # Otherwise, fall back to querying by date (for Apply Date Filter)
+            file_ids = []
+            with Session(engine) as session:
+                statement = select(self._index._resources["Source"].id)
+                if self._index.config.get("private", False):
+                    statement = statement.where(
+                        self._index._resources["Source"].user == user_id
+                    )
+                if start_date:
+                    statement = statement.where(self._index._resources["Source"].date_created >= start_date)
+                if end_date:
+                    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
+                        end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+                    statement = statement.where(self._index._resources["Source"].date_created <= end_date)
+                results = session.execute(statement).all()
+                for (id,) in results:
+                    file_ids.append(id)
+            return file_ids
 
+        # fallback: all files
         file_ids = []
         with Session(engine) as session:
             statement = select(self._index._resources["Source"].id)
@@ -1716,20 +1746,9 @@ class FileSelector(BasePage):
                 statement = statement.where(
                     self._index._resources["Source"].user == user_id
                 )
-
-            # Filter start_date and end_date
-            if mode == "date":
-                if start_date:
-                    statement = statement.where(self._index._resources["Source"].date_created >= start_date)
-                if end_date:
-                    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
-                        end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
-                    statement = statement.where(self._index._resources["Source"].date_created <= end_date)
-
             results = session.execute(statement).all()
             for (id,) in results:
                 file_ids.append(id)
-
         return file_ids
 
     def load_files(self, selected_files, user_id):
@@ -1800,9 +1819,7 @@ class FileSelector(BasePage):
         elif isinstance(end, datetime.date) and not isinstance(end, datetime.datetime):
             end = datetime.datetime.combine(end, datetime.time(23, 59, 59))
 
-        print("Filtering with:", start, end, user_id)
-        file_ids = self.get_selected_ids(["date", [], start, end, user_id])
-        print("Filtered file IDs:", file_ids)
+        file_ids = self.get_selected_ids(["date", [], start, end, user_id, None])
         file_list_str = self.format_file_list(file_ids)
         return file_ids, file_list_str
 
